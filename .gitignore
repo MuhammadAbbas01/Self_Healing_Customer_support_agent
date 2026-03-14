@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+langgraph_env/
+venv/
+env/
+chroma_db/
+.DS_Store
+Thumbs.db
+*.log

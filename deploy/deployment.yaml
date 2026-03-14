@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langgraph-agent
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: langgraph
+  template:
+    metadata:
+      labels:
+        app: langgraph
+    spec:
+      containers:
+      - name: agent
+        image: langgraph-agent:latest
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
