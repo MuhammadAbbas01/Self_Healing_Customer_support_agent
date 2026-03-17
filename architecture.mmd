@@ -1,0 +1,26 @@
+graph TD
+    START((Start)) --> TRIAGE[Triage Node]
+    TRIAGE --> RESEARCH[Research Node - RAG]
+    RESEARCH --> ANALYZER[Analyzer Node]
+    ANALYZER --> FIXER[Fixer Node]
+    FIXER --> SANDBOX[Sandbox Node - E2B]
+    SANDBOX -- "Test Passed" --> HUMAN_REVIEW[Human Review Node]
+    SANDBOX -- "Test Failed & Attempts < Max" --> FIXER
+    SANDBOX -- "Test Failed & Max Attempts" --> HUMAN_REVIEW
+    HUMAN_REVIEW --> END((End))
+
+    subgraph "Knowledge Base"
+        DOCS[(Company Docs)]
+        TICKETS[(Ticket Archive)]
+        WIKI[(Engineering Wiki)]
+    end
+
+    RESEARCH -.-> DOCS
+    RESEARCH -.-> TICKETS
+    RESEARCH -.-> WIKI
+
+    subgraph "Observability"
+        GRAFANA[Grafana Cloud]
+    end
+
+    HUMAN_REVIEW -.-> GRAFANA
