@@ -26,7 +26,7 @@ jobs:
 
       - name: Syntax check (py_compile)
         run: |
-          python -m py_compile backend/agent.py backend/config.py backend/data.py backend/database.py backend/main.py backend/monitoring.py backend/testing.py
+          python -m compileall -q backend
 
       - name: Build Docker image
         run: docker build -t self-healing-ai-agent:ci .

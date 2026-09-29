@@ -1,9 +1,8 @@
 from typing import TypedDict, Optional
-from langgraph.graph import StateGraph, END, START
+from langgraph.graph import StateGraph, END
 import json
 import os
 import config
-from sentence_transformers import SentenceTransformer
 from groq import Groq
 
 # These will be set by main.py after RAG setup
@@ -105,11 +104,11 @@ def RESEARCH(state: AgentState):
     else:
         confidence_score = 0.3
 
-    print(f"\n🔍 RAG Search Results:")
-    print(f"   Query: {search_query[:100]}...")
-    print(f"   Found {len(relevant_docs)} relevant chunks")
+    print("RAG search results:")
+    print(f"  query: {search_query[:100]}")
+    print(f"  found {len(relevant_docs)} chunks")
     for i, (doc, meta) in enumerate(zip(relevant_docs[:3], sources[:3])):
-        print(f"   [{i + 1}] From: {meta['source']} - {doc[:100]}...")
+        print(f"  [{i + 1}] {meta['source']}: {doc[:100]}")
 
     return {
         "relevant_docs": relevant_docs,
@@ -237,14 +236,11 @@ def SANDBOX(state: AgentState):
     else:
         code_to_test = str(proposed_fix)
 
-    # Skip if no code to test
     if not code_to_test or code_to_test == "None" or code_to_test.strip() == "":
         return {"test_result": "passed"}
 
-    # Skip actual sandbox execution - just validate code structure
-    print("✅ Code validated (sandbox simulation)")
+    # the E2B sandbox call is stubbed out; only a basic structure check runs
 
-    # Simple validation: check if code has basic structure
     if "import" in code_to_test or "def" in code_to_test or len(code_to_test) > 10:
         return {"test_result": "passed"}
     else:
@@ -264,10 +260,10 @@ def HUMAN_REVIEW(state: AgentState):
 
     if test_result == "passed":
         verified_solution = proposed_fix
-        status = "✓ Solution verified and reviewed"
+        status = "Solution verified and reviewed"
     else:
         verified_solution = "Needs manual human review"
-        status = "✗ Auto-fix failed after max attempts"
+        status = "Auto-fix failed after max attempts"
 
     if isinstance(proposed_fix, dict):
         formatted_fix = ""

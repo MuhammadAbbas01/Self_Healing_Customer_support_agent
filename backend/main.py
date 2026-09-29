@@ -1,14 +1,15 @@
-import agent
-from database import DatabaseManager
-from monitoring import send_metric
-from config import DATABASE_URL
-from data import setup_rag
 import time
+
+import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel
-import uvicorn
 
-print("Setting up RAG system...")
+import agent
+from config import DATABASE_URL
+from database import DatabaseManager
+from monitoring import send_metric
+from rag import setup_rag
+
 collection, embedding_model = setup_rag()
 
 agent.collection = collection
