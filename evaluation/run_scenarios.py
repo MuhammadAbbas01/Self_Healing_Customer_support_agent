@@ -1,9 +1,14 @@
 """Run a few sample tickets through the agent.
 
-Run from the backend folder:
+Run from the project root:
     python -m evaluation.run_scenarios
 """
-from main import process_ticket
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+
+from main import process_ticket  # noqa: E402
 
 SCENARIOS = [
     {

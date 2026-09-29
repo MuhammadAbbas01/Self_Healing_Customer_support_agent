@@ -3,7 +3,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-DOCS_DIR = Path(__file__).resolve().parents[2] / "docs"
+DOCS_DIR = Path(__file__).resolve().parents[1] / "docs"
 
 categories = ["Manual Support", "Standard AI Bot", "Self-Healing Agent"]
 mttr_hours = [24, 4, 0.5]
