@@ -3,11 +3,11 @@ graph TD
     TRIAGE --> RESEARCH[Research Node - RAG]
     RESEARCH --> ANALYZER[Analyzer Node]
     ANALYZER --> FIXER[Fixer Node]
-    FIXER --> SANDBOX[Sandbox Node - E2B]
+    FIXER --> SANDBOX[Validation Node - E2B sandbox planned]
     SANDBOX -- "Test Passed" --> HUMAN_REVIEW[Human Review Node]
     SANDBOX -- "Test Failed & Attempts < Max" --> FIXER
     SANDBOX -- "Test Failed & Max Attempts" --> HUMAN_REVIEW
-    HUMAN_REVIEW --> END((End))
+    HUMAN_REVIEW --> FINISH((End))
 
     subgraph "Knowledge Base"
         DOCS[(Company Docs)]

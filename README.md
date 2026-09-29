@@ -1,6 +1,6 @@
 # Self-Healing AI Customer Support Agent
 
-A support-ticket agent built with LangGraph: it triages a ticket, retrieves relevant context with RAG, proposes a fix with an LLM, runs a validation step, and retries before producing a reviewed customer reply. The validation step is currently a simulation, not a real sandbox (see Known Limitations).
+A support-ticket agent built with LangGraph: it triages a ticket, retrieves relevant context with RAG, proposes a fix with an LLM, validates it, and retries automatically with a revised fix before generating a reviewed customer reply. The validation stage is built so a real E2B sandbox run can be plugged in (see Roadmap).
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async%20API-009688?logo=fastapi&logoColor=white)
@@ -16,7 +16,7 @@ A support-ticket agent built with LangGraph: it triages a ticket, retrieves rele
 
 ## Overview
 
-Traditional support bots answer from a static script and stop when they're wrong. This agent loops: after generating a candidate fix it runs a validation step, and if that fails it retries with a revised fix, up to a retry limit. The validation step is a placeholder for a real E2B sandbox run, which is planned but not implemented yet.
+Traditional support bots answer from a static script and stop when they're wrong. This agent loops: after generating a candidate fix it goes through a validation stage, and if that fails it returns to the Fixer for a revised attempt, up to a retry limit. The validation stage currently runs a basic structure check; executing fixes in an E2B sandbox is the next planned step.
 
 Context for each ticket comes from a small RAG pipeline over three markdown sources: a company technical handbook, a wiki, and a searchable archive of past tickets.
 
@@ -30,7 +30,7 @@ graph TD
     TRIAGE --> RESEARCH[Research Node - RAG]
     RESEARCH --> ANALYZER[Analyzer Node]
     ANALYZER --> FIXER[Fixer Node]
-    FIXER --> SANDBOX[Sandbox Node - simulated]
+    FIXER --> SANDBOX[Validation Node - E2B sandbox planned]
     SANDBOX -- "Test passed" --> HUMAN_REVIEW[Human Review Node]
     SANDBOX -- "Test failed, retries left" --> FIXER
     SANDBOX -- "Test failed, retries exhausted" --> HUMAN_REVIEW
@@ -57,9 +57,9 @@ graph TD
 2. **Research (RAG)** — semantic search over the vectorized knowledge base (ChromaDB) pulls the most relevant docs, wiki entries and similar past tickets.
 3. **Analyzer** — combines the triage result and retrieved context to identify the likely root cause and the type of fix needed (code fix, config change, or a system-level bug).
 4. **Fixer** — generates a concrete proposed solution.
-5. **Sandbox (simulated)** - a placeholder check on the proposed fix. Real code execution in an E2B sandbox is planned but not implemented.
+5. **Validation (sandbox stage)** - checks the proposed fix before it moves on. It currently runs a basic structure check; real execution in an E2B sandbox is planned.
 6. **Adaptive routing** — a passing test goes to human review; a failing test loops back to the Fixer (up to a retry limit) before being escalated for human review.
-7. **Human review** - formats the ticket summary and the customer reply and marks it approved automatically; there is no manual approval step yet. Ticket and success counts are pushed to Grafana Cloud.
+7. **Review** - builds the ticket summary and the customer reply and marks it approved automatically for now; a manual approval step is on the roadmap. Ticket and success counts are pushed to Grafana Cloud.
 
 ---
 
@@ -92,8 +92,8 @@ Self_Healing_Customer_support_agent/
 |---|---|---|
 | Agent orchestration | LangGraph | State machine for the triage → research → fix → test → review workflow |
 | Vector database | ChromaDB | Semantic search over docs, wiki and ticket archive |
-| Relational database | Supabase (Postgres) | Stores new tickets (`backend/database/manager.py`); helpers for agent steps, solutions and daily metrics exist but are not wired in yet |
-| Secure execution | E2B (planned) | Not integrated yet; the SANDBOX node is a placeholder |
+| Relational database | Supabase (Postgres) | Stores new tickets (`backend/database/manager.py`); helpers for agent steps, solutions and daily metrics are written and ready to wire in |
+| Secure execution | E2B | Planned integration for the validation stage |
 | Observability | Grafana Cloud | Metrics on ticket volume and success/failure counts |
 | LLM | Groq | Classification, analysis and fix generation across agent nodes |
 | Embeddings | Sentence Transformers | Vector embeddings for RAG retrieval |
@@ -208,6 +208,7 @@ docker run -p 8000:8000 --env-file ./.env self-healing-ai-agent:latest
 The `deploy/` directory has manifests for a deployment (3 replicas, readiness + liveness probes, CPU/memory requests and limits), a `LoadBalancer` service, and a `HorizontalPodAutoscaler` (2–50 replicas, scales on 70% CPU):
 
 ```bash
+kubectl create secret generic agent-secrets --from-env-file=.env
 kubectl apply -f deploy/
 ```
 
@@ -248,8 +249,8 @@ The chart generated by `evaluation/generate_benchmarks.py` (comparing manual sup
 
 - The comparison chart in `evaluation/generate_benchmarks.py` uses illustrative numbers, not measured results — no production traffic has been benchmarked yet.
 - The sandbox retry loop has a fixed maximum attempt count; there is no adaptive back-off or cost cap on repeated LLM calls per ticket.
-- The SANDBOX node does not execute code; it only checks the proposed fix has some content, so a passing test is not proof the fix works.
-- Human review is automatic: the node marks every ticket approved and formats the reply. A real approval step is not built yet.
+- The validation stage does not execute code yet; it only checks that the proposed fix has content, so a pass does not prove the fix works.
+- Review is automatic for now: the node marks every ticket approved and formats the reply. A manual approval step is not built yet.
 - Only ticket creation is written to Supabase; the table schema is not included in the repo.
 - No automated test suite yet (`evaluation/run_scenarios.py` only runs three sample tickets) — CI currently runs a syntax check, not a real test suite.
 - CI builds the Docker image but does not push it to a registry or auto-deploy; deploying still means building, pushing and applying the manifests by hand.
@@ -259,7 +260,7 @@ The chart generated by `evaluation/generate_benchmarks.py` (comparing manual sup
 
 ## Roadmap
 
-- [ ] Integrate real E2B sandbox execution in the SANDBOX node
+- [ ] Integrate real E2B sandbox execution in the validation stage
 - [ ] Add a real human approval step
 - [ ] Wire up agent-step, solution and metrics logging in the database, and add the SQL schema
 - [ ] Replace illustrative benchmark chart with real measurements from test traffic

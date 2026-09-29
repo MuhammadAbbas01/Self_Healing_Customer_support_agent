@@ -18,6 +18,18 @@ spec:
         image: langgraph-agent:latest
         ports:
         - containerPort: 8000
+        # API keys and DATABASE_URL come from a Secret:
+        # kubectl create secret generic agent-secrets --from-env-file=.env
+        envFrom:
+        - secretRef:
+            name: agent-secrets
+        # the app loads the embedding model and builds the vector index on startup
+        startupProbe:
+          httpGet:
+            path: /
+            port: 8000
+          periodSeconds: 10
+          failureThreshold: 30
         readinessProbe:
           httpGet:
             path: /
@@ -32,8 +44,8 @@ spec:
           periodSeconds: 20
         resources:
           requests:
-            memory: "512Mi"
+            memory: "1Gi"
             cpu: "500m"
           limits:
-            memory: "1Gi"
+            memory: "2Gi"
             cpu: "1000m"
