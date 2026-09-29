@@ -1,6 +1,6 @@
 # Self-Healing AI Customer Support Agent
 
-An autonomous support-ticket agent built with LangGraph: it triages a ticket, retrieves relevant context with RAG, proposes a fix, tests that fix in an isolated sandbox, and retries automatically before handing verified solutions to a human reviewer.
+A support-ticket agent built with LangGraph: it triages a ticket, retrieves relevant context with RAG, proposes a fix with an LLM, runs a validation step, and retries before producing a reviewed customer reply. The validation step is currently a simulation, not a real sandbox (see Known Limitations).
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async%20API-009688?logo=fastapi&logoColor=white)
@@ -16,7 +16,7 @@ An autonomous support-ticket agent built with LangGraph: it triages a ticket, re
 
 ## Overview
 
-Traditional support bots answer from a static script and stop when they're wrong. This agent goes further: when a ticket looks like a code or config issue, it generates a candidate fix, runs it inside an isolated E2B sandbox to check whether it actually works, and retries with a revised fix if the test fails — instead of handing an unverified answer straight to the customer.
+Traditional support bots answer from a static script and stop when they're wrong. This agent loops: after generating a candidate fix it runs a validation step, and if that fails it retries with a revised fix, up to a retry limit. The validation step is a placeholder for a real E2B sandbox run, which is planned but not implemented yet.
 
 Context for each ticket comes from a small RAG pipeline over three markdown sources: a company technical handbook, a wiki, and a searchable archive of past tickets.
 
@@ -30,7 +30,7 @@ graph TD
     TRIAGE --> RESEARCH[Research Node - RAG]
     RESEARCH --> ANALYZER[Analyzer Node]
     ANALYZER --> FIXER[Fixer Node]
-    FIXER --> SANDBOX[Sandbox Node - E2B]
+    FIXER --> SANDBOX[Sandbox Node - simulated]
     SANDBOX -- "Test passed" --> HUMAN_REVIEW[Human Review Node]
     SANDBOX -- "Test failed, retries left" --> FIXER
     SANDBOX -- "Test failed, retries exhausted" --> HUMAN_REVIEW
@@ -57,9 +57,9 @@ graph TD
 2. **Research (RAG)** — semantic search over the vectorized knowledge base (ChromaDB) pulls the most relevant docs, wiki entries and similar past tickets.
 3. **Analyzer** — combines the triage result and retrieved context to identify the likely root cause and the type of fix needed (code fix, config change, or a system-level bug).
 4. **Fixer** — generates a concrete proposed solution.
-5. **Sandbox (E2B)** — the proposed fix is executed in an isolated sandbox to check whether it actually resolves the problem.
+5. **Sandbox (simulated)** - a placeholder check on the proposed fix. Real code execution in an E2B sandbox is planned but not implemented.
 6. **Adaptive routing** — a passing test goes to human review; a failing test loops back to the Fixer (up to a retry limit) before being escalated for human review.
-7. **Human review** — a person gives final sign-off before a solution reaches the customer. Metrics from each run are pushed to Grafana Cloud.
+7. **Human review** - formats the ticket summary and the customer reply and marks it approved automatically; there is no manual approval step yet. Ticket and success counts are pushed to Grafana Cloud.
 
 ---
 
@@ -92,8 +92,8 @@ Self_Healing_Customer_support_agent/
 |---|---|---|
 | Agent orchestration | LangGraph | State machine for the triage → research → fix → test → review workflow |
 | Vector database | ChromaDB | Semantic search over docs, wiki and ticket archive |
-| Relational database | Supabase (Postgres) | Persists ticket data and agent state |
-| Secure execution | E2B sandbox | Isolated environment to test a proposed fix before it reaches a human |
+| Relational database | Supabase (Postgres) | Stores new tickets (`backend/database/manager.py`); helpers for agent steps, solutions and daily metrics exist but are not wired in yet |
+| Secure execution | E2B (planned) | Not integrated yet; the SANDBOX node is a placeholder |
 | Observability | Grafana Cloud | Metrics on ticket volume and success/failure counts |
 | LLM | Groq | Classification, analysis and fix generation across agent nodes |
 | Embeddings | Sentence Transformers | Vector embeddings for RAG retrieval |
@@ -126,14 +126,14 @@ Create a `.env` file in the project root:
 GROQ_API_KEY="your_groq_api_key_here"
 DATABASE_URL="postgresql://user:password@host:port/database_name"
 E2B_API_KEY="your_e2b_api_key_here"
-GRAFANA_URL="your_grafana_loki_endpoint_here"
+GRAFANA_URL="your_grafana_otlp_metrics_endpoint_here"
 GRAFANA_USER="your_grafana_username_here"
 GRAFANA_TOKEN="your_grafana_api_token_here"
 ```
 
 - `GROQ_API_KEY` — from the [Groq Console](https://console.groq.com/)
 - `DATABASE_URL` — a Postgres connection string, e.g. from [Supabase](https://supabase.com/)
-- `E2B_API_KEY` — from [E2B.dev](https://e2b.dev/)
+- `E2B_API_KEY` - reserved for the planned sandbox integration ([E2B.dev](https://e2b.dev/)); not used yet
 - `GRAFANA_URL` / `GRAFANA_USER` / `GRAFANA_TOKEN` — from your Grafana Cloud instance
 
 ### 3. Run locally
@@ -227,7 +227,7 @@ flowchart TB
         SVC --> P3
     end
     LB(["External traffic"]) --> SVC
-    P1 & P2 & P3 --> EXT["Supabase · Groq · E2B · Grafana Cloud"]
+    P1 & P2 & P3 --> EXT["Supabase, Groq, Grafana Cloud"]
 ```
 
 Before applying to a real cluster: build and push the image to a registry, then update the placeholder `image:` field in `deploy/deployment.yaml` (currently `langgraph-agent:latest` — the file has a comment showing the expected format).
@@ -248,7 +248,9 @@ The chart generated by `evaluation/generate_benchmarks.py` (comparing manual sup
 
 - The comparison chart in `evaluation/generate_benchmarks.py` uses illustrative numbers, not measured results — no production traffic has been benchmarked yet.
 - The sandbox retry loop has a fixed maximum attempt count; there is no adaptive back-off or cost cap on repeated LLM calls per ticket.
-- Human review is a required final step for every ticket; the agent does not (and should not) auto-send unverified fixes to customers.
+- The SANDBOX node does not execute code; it only checks the proposed fix has some content, so a passing test is not proof the fix works.
+- Human review is automatic: the node marks every ticket approved and formats the reply. A real approval step is not built yet.
+- Only ticket creation is written to Supabase; the table schema is not included in the repo.
 - No automated test suite yet (`evaluation/run_scenarios.py` only runs three sample tickets) — CI currently runs a syntax check, not a real test suite.
 - CI builds the Docker image but does not push it to a registry or auto-deploy; deploying still means building, pushing and applying the manifests by hand.
 - The Kubernetes manifests are written and were not deployed to a live cluster; `deploy/deployment.yaml` still has a placeholder image name to replace once an image is pushed somewhere.
@@ -257,6 +259,9 @@ The chart generated by `evaluation/generate_benchmarks.py` (comparing manual sup
 
 ## Roadmap
 
+- [ ] Integrate real E2B sandbox execution in the SANDBOX node
+- [ ] Add a real human approval step
+- [ ] Wire up agent-step, solution and metrics logging in the database, and add the SQL schema
 - [ ] Replace illustrative benchmark chart with real measurements from test traffic
 - [ ] Expand automated test coverage and run the real test suite in CI (not just a syntax check)
 - [ ] Add a registry-push job to CI (Docker Hub or GHCR) and wire it to the K8s manifests
@@ -265,7 +270,7 @@ The chart generated by `evaluation/generate_benchmarks.py` (comparing manual sup
 
 ---
 
-Independent project, built to learn and demonstrate agentic AI system design (LangGraph, RAG, sandboxed self-correction). Not connected to a live production support system.
+Independent project, built to learn and demonstrate agentic AI system design (LangGraph, RAG, retry-based self-correction). Not connected to a live production support system.
 
 ## Author
 
@@ -274,4 +279,4 @@ GitHub: [@MuhammadAbbas01](https://github.com/MuhammadAbbas01)
 
 ---
 
-<sub>Built with LangGraph, FastAPI, ChromaDB and E2B.</sub>
+<sub>Built with LangGraph, FastAPI and ChromaDB.</sub>
