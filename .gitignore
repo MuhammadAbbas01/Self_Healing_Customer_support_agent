@@ -5,6 +5,7 @@ __pycache__/
 langgraph_env/
 venv/
 env/
+.env
 chroma_db/
 .DS_Store
 Thumbs.db
