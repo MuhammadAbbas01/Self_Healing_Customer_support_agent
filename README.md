@@ -31,7 +31,7 @@ graph TD
     RESEARCH --> ANALYZER[Analyzer Node]
     ANALYZER --> FIXER[Fixer Node]
     FIXER --> SANDBOX[Validation Node - E2B sandbox planned]
-    SANDBOX -- "Test passed" --> HUMAN_REVIEW[Human Review Node]
+    SANDBOX -- "Test passed" --> HUMAN_REVIEW[Review Node]
     SANDBOX -- "Test failed, retries left" --> FIXER
     SANDBOX -- "Test failed, retries exhausted" --> HUMAN_REVIEW
     HUMAN_REVIEW --> FINISH((Done))
@@ -58,7 +58,7 @@ graph TD
 3. **Analyzer** — combines the triage result and retrieved context to identify the likely root cause and the type of fix needed (code fix, config change, or a system-level bug).
 4. **Fixer** — generates a concrete proposed solution.
 5. **Validation (sandbox stage)** - checks the proposed fix before it moves on. It currently runs a basic structure check; real execution in an E2B sandbox is planned.
-6. **Adaptive routing** — a passing test goes to human review; a failing test loops back to the Fixer (up to a retry limit) before being escalated for human review.
+6. **Adaptive routing** - a passing check goes to the review step; a failing one loops back to the Fixer (up to a retry limit) and then goes to review with the failure noted.
 7. **Review** - builds the ticket summary and the customer reply and marks it approved automatically for now; a manual approval step is on the roadmap. Ticket and success counts are pushed to Grafana Cloud.
 
 ---
