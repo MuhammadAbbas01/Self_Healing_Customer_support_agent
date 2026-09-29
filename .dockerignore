@@ -1,0 +1,11 @@
+.git
+.gitignore
+.idea
+__pycache__/
+*.pyc
+venv/
+env/
+langgraph_env/
+chroma_db/
+.env
+*.log

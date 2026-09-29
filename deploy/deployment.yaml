@@ -14,9 +14,22 @@ spec:
     spec:
       containers:
       - name: agent
+        # Replace with your pushed image, e.g. ghcr.io/muhammadabbas01/self-healing-agent:latest
         image: langgraph-agent:latest
         ports:
         - containerPort: 8000
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 20
         resources:
           requests:
             memory: "512Mi"
