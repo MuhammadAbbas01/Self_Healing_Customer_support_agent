@@ -34,7 +34,7 @@ graph TD
     SANDBOX -- "Test passed" --> HUMAN_REVIEW[Human Review Node]
     SANDBOX -- "Test failed, retries left" --> FIXER
     SANDBOX -- "Test failed, retries exhausted" --> HUMAN_REVIEW
-    HUMAN_REVIEW --> END((End))
+    HUMAN_REVIEW --> FINISH((Done))
 
     subgraph "Knowledge base"
         DOCS[(Company docs)]
