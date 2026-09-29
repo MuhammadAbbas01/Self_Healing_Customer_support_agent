@@ -1,3 +1,4 @@
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -31,5 +32,6 @@ plt.title('Performance Benchmark: Self-Healing Agent vs. Traditional Systems')
 fig.tight_layout()
 
 # Save the plot
-plt.savefig('/home/ubuntu/Self_Healing_Customer_support_agent/performance_benchmarks.png')
+_DOCS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'docs')
+plt.savefig(os.path.join(_DOCS_DIR, 'performance_benchmarks.png'))
 print("✅ Performance benchmark chart generated!")

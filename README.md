@@ -63,6 +63,30 @@ graph TD
 
 ---
 
+## Project Structure
+
+```text
+Self_Healing_Customer_support_agent/
+├── backend/
+│   ├── main.py                  FastAPI app + ticket endpoint
+│   ├── agent.py                 LangGraph state machine (triage → fix → test → review)
+│   ├── data.py                  Loads data/ into ChromaDB for RAG
+│   ├── database.py              Supabase (Postgres) read/write
+│   ├── monitoring.py            Pushes metrics to Grafana Cloud
+│   ├── config.py                Environment variable loading
+│   ├── testing.py                Manual test script for the agent
+│   └── generate_benchmarks.py   Builds docs/performance_benchmarks.png
+├── data/                        Knowledge base (handbook, wiki, ticket archive)
+├── docs/                        Architecture diagrams (.mmd + rendered .png)
+├── deploy/                      Kubernetes manifests (deployment, service, HPA)
+├── .github/workflows/ci.yml     GitHub Actions: syntax check + Docker build
+├── Dockerfile
+├── railway.json
+└── requirements.txt
+```
+
+---
+
 ## Tech Stack
 
 | Category | Technology | Role |
@@ -115,11 +139,13 @@ GRAFANA_TOKEN="your_grafana_api_token_here"
 
 ### 3. Run locally
 
+Run from the project root (not from inside `backend/`) so the app finds `data/` and connects the pieces correctly:
+
 ```bash
-python main.py
+python backend/main.py
 ```
 
-On first run, `data.py` loads, chunks and embeds `Company_Technical_Handbook.md`, `support_tickets_archive.md` and `engineering_wiki.md` into ChromaDB.
+On first run, `backend/data.py` loads, chunks and embeds the three files in `data/` (`Company_Technical_Handbook.md`, `support_tickets_archive.md`, `engineering_wiki.md`) into ChromaDB.
 
 The API is available at `http://0.0.0.0:8000`, with interactive docs at `http://0.0.0.0:8000/docs`.
 
