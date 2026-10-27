@@ -48,13 +48,14 @@ def send_metric(metric_name, value, labels=None):
             GRAFANA_URL,
             auth=(GRAFANA_USER, GRAFANA_TOKEN),
             headers={"Content-Type": "application/json"},
-            json=payload
+            json=payload,
+            timeout=5
         )
 
         if response.status_code == 200:
-            print(f"✅ Sent metric: {metric_name} = {value}")
+            print(f"Sent metric: {metric_name} = {value}")
         else:
-            print(f"⚠️ Failed: {response.status_code}")
+            print(f"Metric failed: {response.status_code}")
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Metric error: {e}")

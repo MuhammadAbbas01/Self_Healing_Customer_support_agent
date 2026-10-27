@@ -1,3 +1,5 @@
+.env
+deploy/secrets.yaml
 __pycache__/
 *.pyc
 *.pyo
@@ -9,3 +11,12 @@ chroma_db/
 .DS_Store
 Thumbs.db
 *.log
+# --- added before demo push ---
+.env.*
+!.env.example
+*.bak
+_*.py
+_*.sh
+_tickets.json
+chroma_db_v2/
+.idea/

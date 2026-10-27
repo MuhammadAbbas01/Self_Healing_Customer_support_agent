@@ -1,17 +1,70 @@
-from typing import TypedDict, Optional
-from langgraph.graph import StateGraph, END, START
+import ast
 import json
-import os
+import asyncio
+from typing import Optional, TypedDict, Literal
+
 import config
-from sentence_transformers import SentenceTransformer
-from groq import Groq
+import rag
+from e2b_code_interpreter import AsyncSandbox
+from langgraph.graph import StateGraph, END, START
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg_pool import AsyncConnectionPool
+from langchain_core.messages import SystemMessage, HumanMessage
+from pydantic import BaseModel, Field
+from langchain_groq import ChatGroq
 
-# These will be set by main.py after RAG setup
-collection = None
-embedding_model = None
-groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+
+llm = ChatGroq(
+    model= "openai/gpt-oss-20b",
+    api_key=config.GROQ_API_KEY
+)
+
+#Handling the API...
+async def invoke_with_retry(structured_llm, message, max_retries=5):
+    last_error = None
+    delay = 1
+    for attempt in range(max_retries):
+        try:
+            return await structured_llm.ainvoke(message)
+        except Exception as e:
+            last_error = e
+            status = getattr(e, "status_code", None)
+            bad_tool_output = status == 400 and "tool_use_failed" in str(e)
+            if (status in (429, 500, 502, 503, 504) or bad_tool_output) and attempt < max_retries - 1:
+                print(f"Model call failed (attempt {attempt + 1}/{max_retries}): {e}")
+                await asyncio.sleep(delay)
+                delay *= 2
+            else:
+                print(f"Model call failed: {e}")
+                break
+    raise last_error      
+
+class Triageinfo(BaseModel):
+    issue_type: str = Field(..., description="short label for the kind of issue, in your own words based on the message")
+    severity: Literal["critical", "high", "medium", "low"] = Field(..., description="""critical = system down or data loss,
+    high = some feature is defect and system not working, medium = partial problem, low = low problem not produce any affection """)
+    category: str = Field(..., description="area of the system this issue belongs to, in your own words")
+    requires_code_fix: bool = Field(..., description="true if the customer's code must change")
+
+class Analyzerinfo(BaseModel):
+    root_cause: str = Field(..., description="root cause of the issue")
+    error_diagnosis: str = Field(..., description=" the diagnosis of the error")
+    expected_solution_type: str = Field(..., description="kind of solution expected, in a few words")
 
 
+class Fixerinfo(BaseModel):
+    estimated_risk: Literal["high", "medium", "safe"] = Field(..., description="""high = the system can stop working,
+    medium = part of the system can be affected, safe = the system stays reliable and working""")
+    why_this_works: str = Field(..., description="why this solution fixes the problem")
+    step_by_step_solution: list[str] = Field(..., description="clear steps of the proposed solution")
+    exact_commands: list[str] = Field(default_factory=list, description="commands to run, step by step, if any")
+    exact_code_to_use: Optional[str] = Field(None, description="the corrected code, only if the fix needs code")
+    exact_config_changes: Optional[str] = Field(None, description="the settings to change, only if the fix needs config")
+    before_code: Optional[str] = Field(None, description="the old code or setting, only if relevant")
+    after_code: Optional[str] = Field(None, description="the new code or setting, only if relevant")
+
+
+#___________________________________________AgentState____________________________________________#
 class AgentState(TypedDict):
     customer_message: str
     customer_code: Optional[str]
@@ -26,90 +79,64 @@ class AgentState(TypedDict):
     root_cause: str
     error_diagnosis: str
     expected_solution_type: str
-    proposed_fix: str
+    proposed_fix: dict
     fix_explanation: str
     estimated_risk: str
     test_result: str
     error_logs: str
-    attempt_count: int
+    attempt_count: int      # sandbox tries
+    review_count: int       # human rejections
     max_attempts: int
     verified_solution: str
-    human_approved: bool
+    human_approved: Optional[bool]
     customer_response: str
+    human_feedback: str
+    escalation_summary: dict
 
 
-def TRIAGE(state: AgentState):
+
+
+async def TRIAGE(state: AgentState):
     customer_message = state["customer_message"]
     customer_code = state.get("customer_code")
 
-    prompt = f"""You are a technical support classifier.
+    system = SystemMessage(content="""You are a technical support triage agent.
+Classify the customer's issue using the Triageinfo fields. Be clear, concise and correct.""")
 
-Analyze this customer issue:
-Message: {customer_message}
-Code: {customer_code}
+    human = HumanMessage(content=f"""Customer message: {customer_message}
+Customer code: {customer_code or "No code provided"}""")
 
-Return ONLY a JSON object (no markdown, no explanation):
-{{
-  "issue_type": "bug" or "question" or "config",
-  "severity": "critical" or "high" or "medium" or "low",
-  "category": "authentication" or "API" or "database" or "general",
-  "requires_code_fix": true or false
-}}"""
-
-    response = groq_client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[
-            {"role": "system", "content": "You are a technical support AI. Always respond with valid JSON only."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0,
-        response_format={"type": "json_object"}
-    )
-
-    result_text = response.choices[0].message.content
-    result = json.loads(result_text)
+    structured_llm = llm.with_structured_output(Triageinfo)
+    result = await invoke_with_retry(structured_llm, [system, human])
 
     return {
-        "issue_type": result["issue_type"],
-        "severity": result["severity"],
-        "category": result["category"],
-        "requires_code_fix": result["requires_code_fix"]
+        "issue_type": result.issue_type,
+        "severity": result.severity,
+        "category": result.category,
+        "requires_code_fix": result.requires_code_fix
     }
-
 
 def RESEARCH(state: AgentState):
     customer_message = state["customer_message"]
     issue_type = state["issue_type"]
     category = state["category"]
 
+    # Retry data (empty on the first run)
+    review_count = state.get("review_count", 0)
+    human_feedback = state.get("human_feedback", "")
+
     search_query = f"{customer_message} {issue_type} {category}"
-    query_embedding = embedding_model.encode([search_query]).tolist()
 
-    results = collection.query(
-        query_embeddings=query_embedding,
-        n_results=5
-    )
-
-    relevant_docs = results['documents'][0] if results['documents'] else []
-    sources = results['metadatas'][0] if results['metadatas'] else []
-
-    similar_tickets = [
-        doc for doc, meta in zip(relevant_docs, sources)
-        if 'support_tickets' in meta.get('source', '')
-    ]
-
-    if len(relevant_docs) >= 3:
-        confidence_score = 0.9
-    elif len(relevant_docs) >= 1:
-        confidence_score = 0.7
+    # After a human rejection, the reviewer's feedback steers the search
+    if review_count > 0 and human_feedback:
+        print(f"Retry after human rejection {review_count}. Feedback: {human_feedback}")
+        search_query += f" {human_feedback}"
     else:
-        confidence_score = 0.3
+        print("First attempt.")
 
-    print(f"\n🔍 RAG Search Results:")
-    print(f"   Query: {search_query[:100]}...")
-    print(f"   Found {len(relevant_docs)} relevant chunks")
-    for i, (doc, meta) in enumerate(zip(relevant_docs[:3], sources[:3])):
-        print(f"   [{i + 1}] From: {meta['source']} - {doc[:100]}...")
+    relevant_docs, similar_tickets, confidence_score = rag.search_docs(search_query)
+
+    print(f"\nRAG Search: found {len(relevant_docs)} chunks for query: {search_query[:60]}...")
 
     return {
         "relevant_docs": relevant_docs,
@@ -118,7 +145,7 @@ def RESEARCH(state: AgentState):
     }
 
 
-def ANALYZER(state: AgentState):
+async def ANALYZER(state: AgentState):
     customer_message = state["customer_message"]
     customer_code = state.get("customer_code")
     relevant_docs = state["relevant_docs"]
@@ -126,202 +153,311 @@ def ANALYZER(state: AgentState):
     issue_type = state["issue_type"]
     category = state["category"]
 
-    prompt = f"""You are an expert technical support analyst.
+    # NEW: retry data (empty on the first run)
+    human_feedback = state.get("human_feedback", "")
+    review_count = state.get("review_count", 0)
+    previous_root_cause = state.get("root_cause", "")
 
-Analyze this customer issue:
+    system = SystemMessage(content="""You are a technical support analyzer agent.
+Analyze and diagnose the customer's issue using the Analyzerinfo fields. Be clear, concise and correct.
+Use the provided documents and similar tickets only if they are relevant to this issue.""")
 
-CUSTOMER MESSAGE: {customer_message}
-CUSTOMER CODE: {customer_code if customer_code else "No code provided"}
-ISSUE TYPE: {issue_type}
-CATEGORY: {category}
-DOCUMENTATION FOUND: {relevant_docs}
-SIMILAR PAST ISSUES: {similar_tickets}
+    docs_text = "\n---\n".join(relevant_docs) or "None found"
+    tickets_text = "\n---\n".join(similar_tickets) or "None found"
 
-Based on all this information, determine:
-1. ROOT CAUSE - What is actually causing this problem?
-2. ERROR DIAGNOSIS - Technical explanation of why this is happening
-3. EXPECTED SOLUTION TYPE - Is this a "code_fix", "config_change", or "system_bug"?
-
-Return ONLY a JSON object:
-{{
-  "root_cause": "brief description of root cause",
-  "error_diagnosis": "detailed technical explanation",
-  "expected_solution_type": "code_fix" or "config_change" or "system_bug"
-}}"""
-
-    response = groq_client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[
-            {"role": "system", "content": "You are a technical support analyst. Always respond with valid JSON only."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0,
-        response_format={"type": "json_object"}
+    # NEW: only filled after a human rejection
+    retry_text = (
+        f"\n\nA human reviewer rejected the previous solution.\n"
+        f"Previous root cause: {previous_root_cause}\n"
+        f"Reviewer feedback: {human_feedback}\n"
+        f"Re-check the diagnosis. Do not repeat the same root cause if the feedback says it is wrong."
+        if review_count > 0 and human_feedback else ""
     )
 
-    result_text = response.choices[0].message.content
-    result = json.loads(result_text)
+    human = HumanMessage(content=f"""Customer message: {customer_message}
+Customer code: {customer_code or "No code provided"}
+Issue type: {issue_type}
+Category: {category}
+
+Relevant documents:
+{docs_text}
+
+Similar past tickets:
+{tickets_text}{retry_text}""")
+
+    structured_llm = llm.with_structured_output(Analyzerinfo)
+    result = await invoke_with_retry(structured_llm, [system, human])
 
     return {
-        "root_cause": result["root_cause"],
-        "error_diagnosis": result["error_diagnosis"],
-        "expected_solution_type": result["expected_solution_type"]
+        "root_cause": result.root_cause,
+        "error_diagnosis": result.error_diagnosis,
+        "expected_solution_type": result.expected_solution_type
     }
 
 
-def FIXER(state: AgentState):
+async def FIXER(state: AgentState):
     root_cause = state["root_cause"]
     error_diagnosis = state["error_diagnosis"]
     customer_message = state["customer_message"]
     customer_code = state.get("customer_code")
     relevant_docs = state["relevant_docs"]
+    similar_tickets = state["similar_tickets"]
+    issue_type = state["issue_type"]
+    category = state["category"]
     attempt_count = state["attempt_count"]
     error_logs = state.get("error_logs", "")
     expected_solution_type = state["expected_solution_type"]
 
-    if attempt_count == 0:
-        print("First attempt")
-    else:
-        print(f"Retry attempt {attempt_count}. Previous error: {error_logs}")
-
-    prompt = f"""You are an expert software engineer providing solutions.
-
-CUSTOMER ISSUE: {customer_message}
-ROOT CAUSE: {root_cause}
-ERROR DIAGNOSIS: {error_diagnosis}
-SOLUTION TYPE: {expected_solution_type}
-ATTEMPT: {attempt_count + 1}
-
-Provide a solution in simple text format, no code blocks with newlines.
-
-Return ONLY a JSON object with simple string values:
-{{
-  "step_by_step_solution": ["Update API key format", "Update payment method", "Reactivate account"],
-  "exact_code_to_use": "Use Bearer token authentication",
-  "exact_config_changes": "Update auth header to Bearer format",
-  "exact_commands": ["dashboard.acme.com/settings", "Generate new API key"],
-  "before_code": "Old X-API-Key format",
-  "after_code": "New Bearer token format",
-  "why_this_works": "Bearer tokens are the current auth method",
-  "estimated_risk": "safe"
-}}"""
-
-    response = groq_client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[
-            {"role": "system",
-             "content": "You are an expert software engineer. Always respond with valid JSON only. Keep all values simple strings without newlines."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"}
+    # Human rejection data and the previous fix (empty on the first run)
+    review_count = state.get("review_count", 0)
+    human_feedback = state.get("human_feedback", "")
+    previous_fix = state.get("proposed_fix")
+    previous_fix_text = (
+        json.dumps(previous_fix, default=str)[:2000] if previous_fix else ""
     )
 
-    result_text = response.choices[0].message.content
-    result = json.loads(result_text)
+    if attempt_count == 0 and review_count == 0:
+        print("First attempt")
+    else:
+        print(f"Retry: sandbox attempt {attempt_count}, human rejections {review_count}")
+
+    system = SystemMessage(content="""You are a technical support fixer agent.
+Propose a correct and clear fix for the customer's issue using the Fixerinfo fields.
+Base the fix on the provided documents when they are relevant.
+Fill the code, config and command fields only if this fix needs them.""")
+
+    docs_text = "\n---\n".join(relevant_docs) or "None found"
+    tickets_text = "\n---\n".join(similar_tickets) or "None found"
+
+    # Sandbox retry: the previous fix failed when it was run
+    sandbox_retry_text = (
+        f"\n\nThe previous fix failed in the sandbox.\n"
+        f"Previous fix: {previous_fix_text}\n"
+        f"Error: {error_logs}\n"
+        f"Do not repeat it."
+        if attempt_count > 0 and error_logs else ""
+    )
+
+    # Human retry: a human reviewer rejected the previous fix
+    human_retry_text = (
+        f"\n\nA human reviewer rejected a previous fix.\n"
+        f"Rejected fix: {previous_fix_text}\n"
+        f"Reviewer feedback: {human_feedback}\n"
+        f"Follow the feedback. Do not repeat the rejected fix."
+        if review_count > 0 and human_feedback else ""
+    )
+
+    human = HumanMessage(content=f"""Customer message: {customer_message}
+Customer code: {customer_code or "No code provided"}
+Issue type: {issue_type}
+Category: {category}
+Root cause: {root_cause}
+Error diagnosis: {error_diagnosis}
+Expected solution type: {expected_solution_type}
+Attempt: {attempt_count + 1}
+
+Relevant documents:
+{docs_text}
+
+Similar past tickets:
+{tickets_text}{human_retry_text}{sandbox_retry_text}""")
+
+    structured_llm = llm.with_structured_output(Fixerinfo)
+    result = await invoke_with_retry(structured_llm, [system, human])
 
     return {
-        "proposed_fix": result,
-        "fix_explanation": result.get("why_this_works", ""),
-        "estimated_risk": result.get("estimated_risk", "medium")
+        "proposed_fix": result.model_dump(exclude_none=True),
+        "fix_explanation": result.why_this_works,
+        "estimated_risk": result.estimated_risk,
     }
 
 
-def SANDBOX(state: AgentState):
+async def SANDBOX(state: AgentState):
+    """Runs the fix ONCE and reports honestly. The 3-try loop is
+    FIXER -> SANDBOX -> route_after_sandbox -> FIXER, not a loop in here.
+
+    test_result values:
+      passed  = the code ran with no error
+      failed  = the code crashed (this one counts as an attempt)
+      skipped = nothing to run (no code, or not valid Python)
+      error   = the sandbox itself broke (says nothing about the code)
+    """
     proposed_fix = state["proposed_fix"]
     attempt_count = state["attempt_count"]
-    max_attempts = state["max_attempts"]
 
-    if isinstance(proposed_fix, dict):
-        code_to_test = proposed_fix.get("exact_code_to_use", "")
-    else:
-        code_to_test = str(proposed_fix)
+    code_to_test = proposed_fix.get("exact_code_to_use") if isinstance(proposed_fix, dict) else None
+    code_to_test = (code_to_test or "").strip()
 
-    # Skip if no code to test
-    if not code_to_test or code_to_test == "None" or code_to_test.strip() == "":
-        return {"test_result": "passed"}
+    if not code_to_test:
+        print("No code to execute - sandbox skipped")
+        return {"test_result": "skipped"}
 
-    # Skip actual sandbox execution - just validate code structure
-    print("✅ Code validated (sandbox simulation)")
+    # Only valid Python is run. Config text, bash and other languages are skipped.
+    try:
+        ast.parse(code_to_test)
+    except SyntaxError:
+        print("Not valid Python - sandbox skipped")
+        return {"test_result": "skipped"}
 
-    # Simple validation: check if code has basic structure
-    if "import" in code_to_test or "def" in code_to_test or len(code_to_test) > 10:
-        return {"test_result": "passed"}
-    else:
+    print(f"Running code in E2B sandbox (attempt {attempt_count + 1})...")
+
+    sbx = None
+    try:
+        sbx = await AsyncSandbox.create()
+        execution = await sbx.run_code(code_to_test, timeout=30)
+    except Exception as e:
+        print(f"Sandbox infrastructure error: {e}")
+        return {"test_result": "error", "error_logs": f"Sandbox error: {e}"[:500]}
+    finally:
+        if sbx:
+            await sbx.kill()
+
+    if execution.error:
+        detail = f"{execution.error.name}: {execution.error.value}"[:500]
+        print(f"Sandbox failed: {detail[:150]}")
         return {
             "test_result": "failed",
-            "error_logs": "Code validation failed: insufficient code structure",
-            "attempt_count": attempt_count + 1 if attempt_count < max_attempts else attempt_count
+            "error_logs": detail,
+            "attempt_count": attempt_count + 1,
         }
+
+    print("Sandbox execution passed")
+    return {"test_result": "passed"}
+
+
+def Wait_for_human(state: AgentState):
+    """No-op node. The graph is interrupted BEFORE this node (interrupt_before).
+    /review writes the human decision with as_node="Wait_for_human"."""
+    pass
 
 
 def HUMAN_REVIEW(state: AgentState):
+    """Prepares the draft the human will review. It decides nothing:
+    only the human sets human_approved (through /review)."""
     customer_message = state["customer_message"]
     root_cause = state["root_cause"]
     proposed_fix = state["proposed_fix"]
     test_result = state["test_result"]
     attempt_count = state["attempt_count"]
+    relevant_docs = state.get("relevant_docs", [])
+    similar_tickets = state.get("similar_tickets", [])
+    confidence_score = state.get("confidence_score", 0)
 
-    if test_result == "passed":
-        verified_solution = proposed_fix
-        status = "✓ Solution verified and reviewed"
-    else:
-        verified_solution = "Needs manual human review"
-        status = "✗ Auto-fix failed after max attempts"
+    status = {
+        "passed": "Sandbox test PASSED",
+        "failed": f"Sandbox test FAILED after {attempt_count} attempt(s) - NOT verified",
+        "skipped": "NOT TESTED - this fix has no runnable Python code",
+        "error": "NOT TESTED - the sandbox had an error",
+    }.get(test_result, "Test status unknown")
 
-    if isinstance(proposed_fix, dict):
-        formatted_fix = ""
-        for key, value in proposed_fix.items():
-            formatted_fix += f"\n{key.replace('_', ' ').title()}:\n"
-            if isinstance(value, list):
-                for item in value:
-                    formatted_fix += f"  - {item}\n"
-            elif isinstance(value, dict):
-                for k, v in value.items():
-                    formatted_fix += f"  {k}: {v}\n"
-            else:
-                formatted_fix += f"  {value}\n"
-        proposed_fix_text = formatted_fix
-    else:
-        proposed_fix_text = proposed_fix
+    verified_solution = (
+        json.dumps(proposed_fix, default=str) if test_result == "passed"
+        else "Not verified by sandbox"
+    )
 
-    summary = f"""
+    step_by_step = proposed_fix.get("step_by_step_solution", [])
+    exact_code = proposed_fix.get("exact_code_to_use", "")
+    config_changes = proposed_fix.get("exact_config_changes", "")
+    commands = proposed_fix.get("exact_commands", [])
+    before_code = proposed_fix.get("before_code", "")
+    after_code = proposed_fix.get("after_code", "")
+    why_works = proposed_fix.get("why_this_works", "")
+    risk = proposed_fix.get("estimated_risk", "medium")
+
+    print(f"""
 ==========================================
 TICKET SUMMARY:
 ==========================================
 Customer Issue: {customer_message}
 Root Cause: {root_cause}
-Solution: {proposed_fix_text}
 Test Status: {status}
-Attempts Needed: {attempt_count}
 ==========================================
-"""
+""")
 
-    print(summary)
-
-    customer_response = f"""Hello,
-
-We've identified and resolved your issue.
+    customer_response = f"""==========================================
+PROPOSED SOLUTION (waiting for human review)
+==========================================
 
 ISSUE IDENTIFIED:
 {root_cause}
 
-SOLUTION:
-{proposed_fix_text}
+STEP-BY-STEP SOLUTION:
+"""
 
-This solution has been tested and verified to work in our environment.
+    if step_by_step:
+        for i, step in enumerate(step_by_step, 1):
+            customer_response += f"  Step {i}: {step}\n"
+    else:
+        customer_response += "  See implementation details below\n"
 
-Please implement these changes and let us know if you need any assistance.
+    customer_response += f"""
+IMPLEMENTATION DETAILS:
 
-Best regards,
-Technical Support Team
-ACME Tech"""
+Code to Use:
+  {exact_code if exact_code else 'No specific code changes required'}
+
+Configuration Changes:
+  {config_changes if config_changes else 'No configuration changes required'}
+
+Commands to Run:
+"""
+    if commands:
+        for cmd in commands:
+            customer_response += f"  $ {cmd}\n"
+    else:
+        customer_response += "  No specific commands required\n"
+
+    if before_code and after_code:
+        customer_response += f"""
+BEFORE:
+{before_code}
+
+AFTER:
+{after_code}
+"""
+
+    customer_response += f"""
+WHY THIS WORKS:
+{why_works}
+
+RISK LEVEL: {risk.upper()}
+
+KNOWLEDGE BASE REFERENCES:
+  - Found {len(relevant_docs)} relevant documentation sections
+  - Similar resolved tickets: {len(similar_tickets)}
+  - Confidence Score: {confidence_score:.0%}
+
+TEST STATUS: {status}
+
+==========================================
+For additional support, contact: support@acme.tech
+=========================================="""
 
     return {
         "verified_solution": verified_solution,
-        "human_approved": True,
-        "customer_response": customer_response
+        "customer_response": customer_response,
+        "human_approved": None,   # reset: a new draft waits for a new decision
     }
+
+
+def REVIEW_DECISION(state: AgentState):
+    """Runs right after the human decision arrives (/review).
+    Rejected -> count the rejection and give the sandbox 3 fresh tries."""
+    if state.get("human_approved") is True:
+        return {}
+
+    return {
+        "review_count": state.get("review_count", 0) + 1,
+        "attempt_count": 0,
+        "error_logs": "",
+    }
+
+
+def route_after_research(state):
+    # Low confidence = the docs have no answer. Do not let the fixer guess, send to a human.
+    if state.get("confidence_score", 0) < 0.5:
+        return "MANUAL_ESCALATION"
+    return "ANALYZER"
 
 
 def route_after_sandbox(state):
@@ -329,15 +465,46 @@ def route_after_sandbox(state):
     attempt_count = state["attempt_count"]
     max_attempts = state["max_attempts"]
 
-    if test_result == "passed":
-        return "HUMAN_REVIEW"
-    elif attempt_count < max_attempts:
+    # Retry only when the code really failed. skipped / error / passed go to the human.
+    if test_result == "failed" and attempt_count < max_attempts:
         return "FIXER"
-    else:
-        return "HUMAN_REVIEW"
+    return "HUMAN_REVIEW"
 
 
-def build_graph():
+def route_after_review(state: AgentState):
+    if state.get("human_approved") is True:
+        return END
+    if state.get("review_count", 0) < state["max_attempts"]:
+        return "RESEARCH"
+    return "MANUAL_ESCALATION"
+
+
+def MANUAL_ESCALATION(state: AgentState):
+    """Builds the summary a human needs to write the fix by hand.
+    Attempt history is already in the ticket_draft table."""
+    escalation_summary = {
+        "customer_message": state["customer_message"],
+        "customer_code": state.get("customer_code"),
+        "issue_type": state.get("issue_type", ""),
+        "root_cause": state.get("root_cause", ""),
+        "error_diagnosis": state.get("error_diagnosis", ""),
+        "expected_solution_type": state.get("expected_solution_type", ""),
+        "proposed_fix": state.get("proposed_fix", {}),
+        "test_result": state.get("test_result", ""),
+        "error_logs": state.get("error_logs", ""),
+        "human_feedback": state.get("human_feedback", ""),
+        "review_count": state.get("review_count", 0),
+        "confidence_score": state.get("confidence_score", 0),
+        "similar_tickets": state.get("similar_tickets", []),
+        "relevant_docs_count": len(state.get("relevant_docs", [])),
+    }
+
+    print("Max review attempts reached. Sending ticket to human escalation queue.")
+
+    return {"escalation_summary": escalation_summary}
+
+
+async def build_graph():
     graph_builder = StateGraph(AgentState)
 
     graph_builder.add_node("TRIAGE", TRIAGE)
@@ -346,22 +513,55 @@ def build_graph():
     graph_builder.add_node("FIXER", FIXER)
     graph_builder.add_node("SANDBOX", SANDBOX)
     graph_builder.add_node("HUMAN_REVIEW", HUMAN_REVIEW)
+    graph_builder.add_node("Wait_for_human", Wait_for_human)
+    graph_builder.add_node("REVIEW_DECISION", REVIEW_DECISION)
+    graph_builder.add_node("MANUAL_ESCALATION", MANUAL_ESCALATION)
 
+    graph_builder.add_edge(START, "TRIAGE")
     graph_builder.add_edge("TRIAGE", "RESEARCH")
-    graph_builder.add_edge("RESEARCH", "ANALYZER")
+    graph_builder.add_conditional_edges(
+        "RESEARCH",
+        route_after_research,
+        {"ANALYZER": "ANALYZER", "MANUAL_ESCALATION": "MANUAL_ESCALATION"},
+    )
     graph_builder.add_edge("ANALYZER", "FIXER")
     graph_builder.add_edge("FIXER", "SANDBOX")
-    graph_builder.add_edge("HUMAN_REVIEW", END)
+    graph_builder.add_edge("HUMAN_REVIEW", "Wait_for_human")
+    graph_builder.add_edge("Wait_for_human", "REVIEW_DECISION")
+    graph_builder.add_edge("MANUAL_ESCALATION", END)
 
     graph_builder.add_conditional_edges(
         "SANDBOX",
         route_after_sandbox,
         {
             "HUMAN_REVIEW": "HUMAN_REVIEW",
-            "FIXER": "FIXER"
-        }
+            "FIXER": "FIXER",
+        },
     )
 
-    graph_builder.set_entry_point("TRIAGE")
+    graph_builder.add_conditional_edges(
+        "REVIEW_DECISION",
+        route_after_review,
+        {
+            "RESEARCH": "RESEARCH",
+            "MANUAL_ESCALATION": "MANUAL_ESCALATION",
+            END: END,
+        },
+    )
 
-    return graph_builder.compile()
+    # The checkpointer needs a long-lived Postgres connection, so it uses the Session pooler
+    # (port 5432) instead of the Transaction pooler (6543). A pool with check_connection
+    # replaces dead connections automatically (same idea as database.py).
+    checkpointer_db_url = config.DATABASE_URL.replace(":6543/", ":5432/")
+    pool = AsyncConnectionPool(
+        conninfo=checkpointer_db_url,
+        max_size=10,
+        kwargs={"autocommit": True, "prepare_threshold": 0},
+        check=AsyncConnectionPool.check_connection,
+        open=False,
+    )
+    await pool.open()
+    memory = AsyncPostgresSaver(pool)
+    await memory.setup()
+
+    return graph_builder.compile(interrupt_before=["Wait_for_human"], checkpointer=memory)
