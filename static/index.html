@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACME AI Support Agent</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        .main-card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .input-section {
+            padding: 32px;
+            background: #f8f9fa;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 8px;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 15px;
+            font-family: inherit;
+            resize: vertical;
+            transition: border-color 0.2s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .submit-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 60px 20px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: 16px;
+            color: #6b7280;
+        }
+
+        .solution-section {
+            display: none;
+            padding: 32px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .solution-section.show {
+            display: block;
+        }
+
+        .ticket-badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+
+        .solution-text {
+            font-size: 14px;
+            line-height: 1.8;
+            color: #1f2937;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Courier New', monospace;
+            background: #f9fafb;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+        }
+
+        .new-ticket-btn {
+            margin-top: 24px;
+            padding: 12px 24px;
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .new-ticket-btn:hover {
+            background: #667eea;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>AI Support Agent</h1>
+            <p>AI-powered technical support with complete solution analysis</p>
+        </div>
+
+        <div class="main-card">
+            <div class="input-section" id="inputSection">
+                <div class="input-group">
+                    <label>Describe your technical issue</label>
+                    <textarea id="issue" rows="6" placeholder="Example: My API returns 401 error when authenticating. Database shows 500 connections exhausted..."></textarea>
+                </div>
+
+                <div class="input-group">
+                    <label>Code snippet (optional)</label>
+                    <textarea id="code" rows="4" placeholder="Paste relevant code here..."></textarea>
+                </div>
+
+                <button class="submit-btn" onclick="submitTicket()">
+                    Analyze & Solve Issue
+                </button>
+            </div>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <div class="loading-text">AI is analyzing your issue...</div>
+            </div>
+
+            <div class="solution-section" id="solutionSection">
+                <div class="ticket-badge" id="ticketBadge"></div>
+                <div class="solution-text" id="solutionText"></div>
+                <button class="new-ticket-btn" onclick="resetForm()">Submit New Issue</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function submitTicket() {
+            const issue = document.getElementById('issue').value;
+            const code = document.getElementById('code').value;
+
+            if (!issue.trim()) {
+                alert('Please describe your issue');
+                return;
+            }
+
+            const submitBtn = document.querySelector('.submit-btn');
+            const loading = document.getElementById('loading');
+            const solutionSection = document.getElementById('solutionSection');
+
+            submitBtn.disabled = true;
+            loading.classList.add('show');
+            solutionSection.classList.remove('show');
+
+            try {
+                const response = await fetch('/ticket', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: issue, code: code || null })
+                });
+
+                const data = await response.json();
+
+                loading.classList.remove('show');
+                submitBtn.disabled = false;
+
+                displaySolution(data);
+
+            } catch (error) {
+                console.error('Error:', error);
+                loading.classList.remove('show');
+                submitBtn.disabled = false;
+                alert('Error processing ticket. Please try again.');
+            }
+        }
+
+        function displaySolution(data) {
+            const solutionSection = document.getElementById('solutionSection');
+            const ticketBadge = document.getElementById('ticketBadge');
+            const solutionText = document.getElementById('solutionText');
+
+            ticketBadge.textContent = `Ticket: ${data.ticket_id}`;
+            solutionText.textContent = data.solution;
+
+            solutionSection.classList.add('show');
+        }
+
+        function resetForm() {
+            document.getElementById('issue').value = '';
+            document.getElementById('code').value = '';
+            document.getElementById('solutionSection').classList.remove('show');
+            document.getElementById('issue').focus();
+        }
+    </script>
+</body>
+</html>

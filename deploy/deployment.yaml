@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: langgraph-agent
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
       app: langgraph
@@ -14,38 +14,16 @@ spec:
     spec:
       containers:
       - name: agent
-        # Replace with your pushed image, e.g. ghcr.io/muhammadabbas01/self-healing-agent:latest
         image: langgraph-agent:latest
         ports:
         - containerPort: 8000
-        # API keys and DATABASE_URL come from a Secret:
-        # kubectl create secret generic agent-secrets --from-env-file=.env
         envFrom:
         - secretRef:
             name: agent-secrets
-        # the app loads the embedding model and builds the vector index on startup
-        startupProbe:
-          httpGet:
-            path: /
-            port: 8000
-          periodSeconds: 10
-          failureThreshold: 30
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 8000
-          initialDelaySeconds: 5
-          periodSeconds: 10
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 8000
-          initialDelaySeconds: 15
-          periodSeconds: 20
         resources:
           requests:
-            memory: "1Gi"
+            memory: "512Mi"
             cpu: "500m"
           limits:
-            memory: "2Gi"
+            memory: "1Gi"
             cpu: "1000m"
