@@ -11,3 +11,12 @@ chroma_db/
 Thumbs.db
 *.log
 .idea/
+# added for v2
+.env.*
+!.env.example
+chroma_db_v2/
+*.bak
+_*.py
+_*.sh
+_*.log
+.venv/

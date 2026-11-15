@@ -1,10 +1,3 @@
-import os
-
-# Create documents directory
-os.makedirs('/home/claude/documents', exist_ok=True)
-
-# DOCUMENT 1: Company Technical Handbook (8000+ words, messy, mixed content)
-doc1 = """
 # ACME TECH COMPANY - TECHNICAL KNOWLEDGE BASE
 Last Updated: Multiple dates (see sections)
 Contributors: Various team members
@@ -1095,10 +1088,3 @@ Last updated: March 2024 (various sections at different times)
 Contributors: Mike, Sarah, John, DevOps Team, Support Team
 
 If you find errors or outdated info, please create a ticket. We'll fix it... eventually.
-"""
-
-# Save document 1
-with open('/home/claude/documents/company_handbook.md', 'w') as f:
-    f.write(doc1)
-
-print("Document 1 created: company_handbook.md (8500+ words)")

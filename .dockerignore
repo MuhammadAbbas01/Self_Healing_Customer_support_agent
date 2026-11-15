@@ -9,3 +9,6 @@ langgraph_env/
 chroma_db/
 .env
 *.log
+
+chroma_db_v2
+evaluation/results

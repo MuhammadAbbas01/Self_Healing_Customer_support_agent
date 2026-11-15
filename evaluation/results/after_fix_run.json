@@ -1,0 +1,209 @@
+[
+ {
+  "kind": "answerable",
+  "message": "api keeps giving me 401, im sending my key in X-API-Key header",
+  "ticket_id": "TICKET-3EDC7D55",
+  "status": "pending_review",
+  "stream_secs": 21.5,
+  "test_result": "skipped",
+  "http": 200,
+  "review_status": "approved",
+  "review_secs": 8.2
+ },
+ {
+  "kind": "answerable",
+  "message": "got 403 forbidden but my key is valid",
+  "ticket_id": "TICKET-8A69C881",
+  "status": "pending_review",
+  "stream_secs": 16.1,
+  "test_result": "skipped",
+  "http": 200,
+  "review_status": "approved",
+  "review_secs": 7.2
+ },
+ {
+  "kind": "answerable",
+  "message": "i accidentally pushed my live key to a public github repo, what now",
+  "ticket_id": "TICKET-D64E496B",
+  "status": "pending_review",
+  "stream_secs": 15.7,
+  "test_result": "skipped",
+  "http": 200,
+  "review_status": "approved",
+  "review_secs": 7.1
+ },
+ {
+  "kind": "answerable",
+  "message": "i check payment status every second and hit the limit, need higher limit",
+  "ticket_id": "TICKET-E4A6DA38",
+  "status": "pending_review",
+  "stream_secs": 17.4,
+  "test_result": "skipped",
+  "http": 200,
+  "review_status": "approved",
+  "review_secs": 7.5
+ },
+ {
+  "kind": "answerable",
+  "message": "why would a card get declined, what do the reason codes mean",
+  "ticket_id": "TICKET-7D04F74C",
+  "status": "pending_review",
+  "stream_secs": 17.5,
+  "test_result": "skipped",
+  "http": 200,
+  "review_status": "approved",
+  "review_secs": 7.6
+ },
+ {
+  "kind": "answerable",
+  "message": "not receiving any webhook events on my endpoint",
+  "ticket_id": "TICKET-710775FF",
+  "status": "pending_review",
+  "stream_secs": 35.7,
+  "test_result": "skipped",
+  "http": 200,
+  "review_status": "approved",
+  "review_secs": 7.5
+ },
+ {
+  "kind": "answerable",
+  "message": "same webhook event delivered two times, is that a bug",
+  "ticket_id": "TICKET-2E84940B",
+  "status": "pending_review",
+  "stream_secs": 15.1,
+  "test_result": "skipped",
+  "http": 200,
+  "review_status": "approved",
+  "review_secs": 7.6
+ },
+ {
+  "kind": "answerable",
+  "message": "app freezes when it queries the db, connections never get released",
+  "ticket_id": "TICKET-85099D0C",
+  "status": "pending_review",
+  "stream_secs": 15.7,
+  "test_result": "skipped",
+  "http": 200,
+  "review_status": "approved",
+  "review_secs": 7.6
+ },
+ {
+  "kind": "answerable",
+  "message": "ssl certificate verify failed certificate has expired but your cert is valid",
+  "ticket_id": "TICKET-63B2CF4B",
+  "status": "pending_review",
+  "stream_secs": 22.7,
+  "test_result": "skipped",
+  "http": 200,
+  "review_status": "approved",
+  "review_secs": 7.1
+ },
+ {
+  "kind": "answerable",
+  "message": "page and per_page parameters stopped working on list endpoints",
+  "ticket_id": "TICKET-AB9710BD",
+  "status": "pending_review",
+  "stream_secs": 15.9,
+  "test_result": "skipped",
+  "http": 200,
+  "review_status": "approved",
+  "review_secs": 7.8
+ },
+ {
+  "kind": "unanswerable",
+  "message": "do you support paypal payments",
+  "ticket_id": "TICKET-C2889C79",
+  "status": "escalated",
+  "stream_secs": 10.8,
+  "http": 200
+ },
+ {
+  "kind": "unanswerable",
+  "message": "how do i export all transactions to csv from the dashboard",
+  "ticket_id": "TICKET-131D2800",
+  "status": "escalated",
+  "stream_secs": 11.0,
+  "http": 200
+ },
+ {
+  "kind": "unanswerable",
+  "message": "can you send me your soc2 compliance report",
+  "ticket_id": "TICKET-F03630CA",
+  "status": "escalated",
+  "stream_secs": 11.1,
+  "http": 200
+ },
+ {
+  "kind": "unanswerable",
+  "message": "is there a shopify plugin for your api",
+  "ticket_id": "TICKET-6774029D",
+  "status": "escalated",
+  "stream_secs": 11.2,
+  "http": 200
+ },
+ {
+  "kind": "unanswerable",
+  "message": "do you have a mobile sdk for android",
+  "ticket_id": "TICKET-22DEA272",
+  "status": "escalated",
+  "stream_secs": 12.0,
+  "http": 200
+ },
+ {
+  "kind": "code",
+  "message": "My Python script crashes with KeyError: 'total'. Return the complete corrected Python scri",
+  "ticket_id": "TICKET-DE597003",
+  "status": "pending_review",
+  "stream_secs": 23.4,
+  "test_result": "passed",
+  "http": 200,
+  "review_status": "approved",
+  "review_secs": 9.3
+ },
+ {
+  "kind": "code",
+  "message": "My Python script crashes with ZeroDivisionError when there are no payments. Return the com",
+  "ticket_id": "TICKET-B35B887D",
+  "status": "pending_review",
+  "stream_secs": 21.7,
+  "test_result": "passed",
+  "http": 200,
+  "review_status": "approved",
+  "review_secs": 8.9
+ },
+ {
+  "kind": "code",
+  "message": "My Python script crashes with TypeError: can only concatenate str (not int). Return the co",
+  "ticket_id": "TICKET-8CC24766",
+  "status": "escalated",
+  "stream_secs": 12.4,
+  "test_result": null,
+  "http": 200
+ },
+ {
+  "kind": "self_heal_retry",
+  "message": "payments timing out during our flash sale, 504 gateway timeout",
+  "ticket_id": "TICKET-A73E6A35",
+  "status": "pending_review",
+  "stream_secs": 22.3,
+  "http": 200,
+  "reject_status": "pending_review",
+  "reject_secs": 21.2,
+  "draft_changed": true,
+  "review_status": "approved",
+  "review_secs": 10.6
+ },
+ {
+  "kind": "self_heal_retry",
+  "message": "customers got charged twice when they retried a failed payment",
+  "ticket_id": "TICKET-64096594",
+  "status": "pending_review",
+  "stream_secs": 26.9,
+  "http": 200,
+  "reject_status": null,
+  "reject_secs": 51.9,
+  "draft_changed": true,
+  "review_status": "approved",
+  "review_secs": 10.2
+ }
+]
